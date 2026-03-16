@@ -25,7 +25,8 @@ The final model follows the architecture proposed in *Attention Is All You Need*
 * Encoder-Decoder Attention
 * Linear Projection + Softmax
 
-![Architecture of Transformer](https://machinelearningmastery.com/wp-content/uploads/2021/08/attention_research_1.png)
+<img src="[image_url.jpg](https://machinelearningmastery.com/wp-content/uploads/2021/08/attention_research_1.png)" alt="Architecture of Transformer" width="200" height="100" />
+
 
 ## Goal
 
