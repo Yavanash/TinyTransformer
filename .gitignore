@@ -1,5 +1,6 @@
 data/eng-fra.txt
 data/tokens.pkl
 data/vocabs.pkl
+checkpoints/
 .ipynb_checkpoints
 .env
