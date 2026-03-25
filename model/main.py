@@ -3,8 +3,10 @@ import torch.nn as nn
 from collections import Counter
 import math
 import json
+import os
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+save_dir = '/content/drive/MyDrive/transformer'
 
 PAD = "<pad>"
 SOS = "<sos>"
@@ -240,3 +242,13 @@ class Transformer(nn.Module):
 
         output = self.fc(dec_out)
         return output
+    
+
+def load_checkpoint(model, optimizer, checkpt_path):
+    checkpt = torch.load(checkpt_path, map_location=device)
+    model.load_state_dict(checkpt['model_state_dict'])
+    optimizer.load_state_dict(checkpt['optimizer_state_dict'])
+    epoch = checkpt['epoch']
+    losses = checkpt['loss']
+
+    return model, optimizer, epoch, losses

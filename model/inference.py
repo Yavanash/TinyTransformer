@@ -1,6 +1,7 @@
 import torch
+import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from main import Transformer, Vocab, custom_padding
+from main import Transformer, Vocab, custom_padding, load_checkpoint
 
 import pandas as pd
 import string
@@ -9,6 +10,7 @@ import unicodedata
 eng_vocab = "../data/eng.json"
 fra_vocab = "../data/fra.json"
 filepath = "../data/test.csv"
+checkpt_path = "../checkpoints/checkpt9.pth"
 
 class TestDataset(Dataset):
     def __init__(self, filepath, eng_vocab_path=None, fra_vocab_path=None):
@@ -62,6 +64,10 @@ TGT_VOCAB_SIZE = testdata.eng_vocab.nxt_idx
 MAX_SEQ_LEN = 25
 
 model = Transformer(D_MODEL, NUM_HEADS, NUM_LAYERS, D_FF, MAX_SEQ_LEN, SRC_VOCAB_SIZE, TGT_VOCAB_SIZE)
+criterion = nn.CrossEntropyLoss(ignore_index=0)
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+model, optimizer, epoch, losses = load_checkpoint(model, optimizer, checkpt_path)
 
 def main():
     print(next(iter(test_loader)))
