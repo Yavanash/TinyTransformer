@@ -3,7 +3,6 @@ import torch.nn as nn
 from collections import Counter
 import math
 import json
-import os
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 save_dir = '/content/drive/MyDrive/transformer'
@@ -43,7 +42,18 @@ class Vocab():
 
     def decode(self, batch):
         # batch = [bs, sl]
-        return [" ".join([self.itos.get(token.item(),UNK) for token in tokens]) for tokens in batch]
+        out = []
+        for seq in batch:
+            words = []
+            for token in seq:
+                if token.item() == self.stoi[SOS] or token.item() == self.stoi[PAD]:
+                    continue
+                if token.item() == self.stoi[EOS]:
+                    break
+                words.append(self.itos.get(token.item(), UNK))
+            out.append(" ".join(words))
+
+        return out
     
     def save_vocab(self, filepath):
         with open(filepath, "w") as f:
@@ -52,7 +62,9 @@ class Vocab():
     def load_vocab(self, filepath):
         with open(filepath, "r") as f:
             data = json.load(f)
-        return data
+            self.stoi = data["stoi"]
+            self.itos = {int(k):v for k,v in data["itos"].items()}
+            self.nxt_idx = int(data["nxt_idx"])
 
 
 def custom_padding(batch, pad_idx = 0):
@@ -106,14 +118,14 @@ class MultiHeadAttention(nn.Module):
         contextual_embed = attn_weights @ V
         # contextual_embed = [bs, nh, sl, dk]
 
-        return contextual_embed, attn_weights
+        return contextual_embed
 
     def forward(self, Q, K, V, mask=None):
         Q = self.split_heads(self.W_q(Q))
         K = self.split_heads(self.W_k(K))
         V = self.split_heads(self.W_v(V))
 
-        embed, attn_wts = self.scaled_dot_product_attn(Q, K, V, mask)
+        embed = self.scaled_dot_product_attn(Q, K, V, mask)
         output = self.W_o(self.combine_heads(embed))
 
         return output
@@ -147,7 +159,7 @@ class PositionalEncoding(nn.Module):
 
     def forward(self, x):
         # x = embedding = [bs, sl, d]
-        return x + self.pe[:x.size(1), :]
+        return x + self.pe[:x.size(1), :].unsqueeze(0)
 
 
 class EncoderLayer(nn.Module):
@@ -171,7 +183,7 @@ class EncoderLayer(nn.Module):
 
 
 class DecoderLayer(nn.Module):
-    def __init__(self, d_model, num_heads, d_ff, ):
+    def __init__(self, d_model, num_heads, d_ff):
         super().__init__()
 
         self.masked_mha = MultiHeadAttention(d_model, num_heads)
@@ -216,7 +228,7 @@ class Transformer(nn.Module):
 
     def generate_mask(self, src, tgt):
         src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
-        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(2)
+        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3)
         # print(type(src_mask))
 
         seqlen = tgt.size(1)

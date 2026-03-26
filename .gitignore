@@ -7,3 +7,4 @@ data/fra_vocab.json
 checkpoints/
 .ipynb_checkpoints
 .env
+__pycache__
