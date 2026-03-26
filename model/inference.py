@@ -7,17 +7,20 @@ from main import Transformer, Vocab, custom_padding, load_checkpoint
 import pandas as pd
 from tqdm import tqdm
 import string
+from pickle import dump
 import unicodedata
+import os
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-# eng_vocab = "../data/eng.json"
-# fra_vocab = "../data/fra.json"
-# filepath = "../data/test.csv"
-# checkpt_path = "../checkpoints/checkpt100.pth"
-filepath = "eng-fra.txt"
-eng_vocab = "eng.json"
-fra_vocab = "fra.json"
+eng_vocab = "../data/eng.json"
+fra_vocab = "../data/fra.json"
+filepath = "../data/test.csv"
+checkpt_path = "../checkpoints/checkpt100.pth"
+# filepath = "test.csv"
+# eng_vocab = "eng.json"
+# fra_vocab = "fra.json"
+# checkpt_path = "checkpt100.pth"
 
 class TestDataset(Dataset):
     def __init__(self, filepath, eng_vocab_path=None, fra_vocab_path=None):
@@ -114,6 +117,9 @@ TGT_VOCAB_SIZE = testdata.eng_vocab.nxt_idx
 MAX_SEQ_LEN = 54
 MAX_LEN = 25
 
+tgt_vocab = testdata.eng_vocab
+preprocess = testdata.preprocess
+
 model = InferenceTransformer(D_MODEL, NUM_HEADS, NUM_LAYERS, D_FF, MAX_SEQ_LEN, SRC_VOCAB_SIZE, TGT_VOCAB_SIZE)
 
 model, _, _ = load_checkpoint(model, checkpt_path)
@@ -130,21 +136,33 @@ def validate(model, criterion, test_loader):
 
     for src, tgt in progress:
         src, tgt = src.to(device), tgt.to(device)
-        pred = model(src) # pred = [bs, sl, vocab]
-        pred_loss = pred.contiguous().view(-1, TGT_VOCAB_SIZE)
+        pred = model(src) # pred = [([bs, sl], [bs])]
+        
         tgt_loss = tgt.contiguous().view(-1)
-
+        for output, _ in pred:
+            pred_loss = output.contiguous().view(-1, TGT_VOCAB_SIZE)
         loss = criterion(pred_loss, tgt_loss)
         test_losses.append(loss.item())
     
     return test_losses
 
-def translate():
-    pass
+def translate(model, src, tgt_vocab = tgt_vocab, preprocess = preprocess):
+    pre = preprocess(src)
+    tokens = tgt_vocab.encode(pre)
+    tensor = torch.tensor(tokens, dtype=torch.long)
+
+    beams = model(tensor.unsqueeze(0))
+
+    outputs = []
+    for output, _ in beams:
+        outputs.append(tgt_vocab.decode(output))
+
+    return outputs
 
 def main():
-    print(next(iter(test_loader))[0].shape)
-    print(model(next(iter(test_loader))[0]))
+    src = input("Enter sentence to translate: ")
+    outputs = translate(model, src)
+    print(outputs)
 
 if __name__ == "__main__":
     main()
