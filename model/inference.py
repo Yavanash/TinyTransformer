@@ -11,11 +11,13 @@ import unicodedata
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-eng_vocab = "../data/eng.json"
-fra_vocab = "../data/fra.json"
-filepath = "../data/test.csv"
-checkpt_path = "../checkpoints/checkpt75.pth"
-
+# eng_vocab = "../data/eng.json"
+# fra_vocab = "../data/fra.json"
+# filepath = "../data/test.csv"
+# checkpt_path = "../checkpoints/checkpt100.pth"
+filepath = "eng-fra.txt"
+eng_vocab = "eng.json"
+fra_vocab = "fra.json"
 
 class TestDataset(Dataset):
     def __init__(self, filepath, eng_vocab_path=None, fra_vocab_path=None):
@@ -59,38 +61,45 @@ class InferenceTransformer(Transformer):
     def forward(self, src, k=3):
         # src = [bs, sl]
         src = src[:, :MAX_SEQ_LEN]
-        sos = torch.full((src.size(0), 1), 1, dtype=torch.long, device=device) # 1 = SOS
-        src_mask, out_mask = self.generate_mask(src, sos)
+        dec_in = torch.full((src.size(0), 1), 1, dtype=torch.long, device=device) # 1 = SOS
+        src_mask, _ = self.generate_mask(src, dec_in)
 
         input_src = self.positional_encoding(self.src_embed(src)) # no dropout in inference
-        out_sos = self.positional_encoding(self.tgt_embed(sos))
 
         enc_out = input_src
         for enc_layer in self.encoder_block:
-            context = enc_layer(enc_out, src_mask)
-
-        beams = [(out_sos, 1)]
+            enc_out = enc_layer(enc_out, src_mask)
+        
+        initial_probs = torch.zeros(src.size(0), dtype=torch.float, device=device)
+        beams = [(dec_in, initial_probs)] # log(1) = 0
 
         for _ in range(3):
             new_beam = []
-            for out, prob in beams:
-                pass
+            for inpt, prob in beams:
+                self.forward_step(src, inpt, prob, new_beam, enc_out, src_mask, k)
+            nb = sorted(new_beam, reverse=True, key=lambda x: x[1].mean().item())[:k]
+            beams = nb
 
-    def forward_step(self, out, prob, new_beam, enc_out, src_mask, out_mask, k):
-        # input = tgt = SOS
+        return beams
+
+    def forward_step(self, src, inpt, prob, new_beam, enc_out, src_mask, k):
+        # inpt = [bs, sl]
+        out = self.positional_encoding(self.tgt_embed(inpt))
+        _, out_mask = self.generate_mask(src, inpt)
         dec_out = out
+
         for dec_layer in self.decoder_block:
             dec_out = dec_layer(dec_out, enc_out, src_mask, out_mask)
-        # after all layers, dec_out = [bs, 1, d] => next token predicted
-
-        x = F.log_softmax(self.fc(dec_out))
-        vals, idxs = torch.topk(x, k, dim=-1, sorted=True) 
-
-
-
-    def beam_search(self, beams, new_token, k):
-        pass
         
+        dec_out = self.fc(dec_out)
+        final_token = dec_out[:, -1, :] # = [bs, vocab]
+
+        vals, idxs = torch.topk(F.log_softmax(final_token, dim=-1), k, dim=-1, largest=True) 
+        # idxs = [bs, k], vals = [bs, k], prob = [bs]
+        for i in range(k):
+            new_inpt = torch.cat((inpt, idxs[:,i].unsqueeze(-1)), dim=-1)
+            new_prob = prob + vals[:,i]
+            new_beam.append((new_inpt, new_prob))        
 
 
 testdata = TestDataset(filepath, eng_vocab, fra_vocab)
@@ -106,10 +115,12 @@ MAX_SEQ_LEN = 54
 MAX_LEN = 25
 
 model = InferenceTransformer(D_MODEL, NUM_HEADS, NUM_LAYERS, D_FF, MAX_SEQ_LEN, SRC_VOCAB_SIZE, TGT_VOCAB_SIZE)
+
+model, _, _ = load_checkpoint(model, checkpt_path)
+
+model.to(device)
 criterion = nn.CrossEntropyLoss(ignore_index=0)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-
-model, _, _, _ = load_checkpoint(model, optimizer, checkpt_path)
 
 def validate(model, criterion, test_loader):
     model.eval()
@@ -118,6 +129,7 @@ def validate(model, criterion, test_loader):
     progress = tqdm(test_loader, total=len(test_loader))
 
     for src, tgt in progress:
+        src, tgt = src.to(device), tgt.to(device)
         pred = model(src) # pred = [bs, sl, vocab]
         pred_loss = pred.contiguous().view(-1, TGT_VOCAB_SIZE)
         tgt_loss = tgt.contiguous().view(-1)

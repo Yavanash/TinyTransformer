@@ -202,7 +202,7 @@ class DecoderLayer(nn.Module):
         # tgt_mask = eng mask = causal + padding mask
         # non auto regressive in training
 
-        z = self.norm1(z)
+        z = self.norm1(x)
         z = self.masked_mha(x, x, x, tgt_mask)
         z1 = self.dropout(z) + x
         
@@ -264,11 +264,10 @@ class Transformer(nn.Module):
         return output
     
 
-def load_checkpoint(model, optimizer, checkpt_path):
+def load_checkpoint(model, checkpt_path):
     checkpt = torch.load(checkpt_path, map_location=device)
     model.load_state_dict(checkpt['model_state_dict'])
-    optimizer.load_state_dict(checkpt['optimizer_state_dict'])
     epoch = checkpt['epoch']
     losses = checkpt['loss']
 
-    return model, optimizer, epoch, losses
+    return model, epoch, losses
