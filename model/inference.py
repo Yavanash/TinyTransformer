@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from main import Transformer, Vocab, custom_padding, load_checkpoint
 
@@ -13,7 +14,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 eng_vocab = "../data/eng.json"
 fra_vocab = "../data/fra.json"
 filepath = "../data/test.csv"
-checkpt_path = "../checkpoints/checkpt3.pth"
+checkpt_path = "../checkpoints/checkpt75.pth"
 
 
 class TestDataset(Dataset):
@@ -59,25 +60,36 @@ class InferenceTransformer(Transformer):
         # src = [bs, sl]
         src = src[:, :MAX_SEQ_LEN]
         sos = torch.full((src.size(0), 1), 1, dtype=torch.long, device=device) # 1 = SOS
-        src_mask, tgt_mask = self.generate_mask(src, sos)
+        src_mask, out_mask = self.generate_mask(src, sos)
 
         input_src = self.positional_encoding(self.src_embed(src)) # no dropout in inference
-        tgt = self.positional_encoding(self.tgt_embed(sos))
+        out_sos = self.positional_encoding(self.tgt_embed(sos))
 
         enc_out = input_src
         for enc_layer in self.encoder_block:
             context = enc_layer(enc_out, src_mask)
 
-        for _ in range(3):
-            # input = tgt = SOS
-            dec_out = tgt
-            for dec_layer in self.decoder_block:
-                dec_out = dec_layer(dec_out, enc_out, src_mask, tgt_mask)
-            # after all layers, dec_out = [bs, 1, d] => next token predicted, added to tgt
-            
+        beams = [(out_sos, 1)]
 
-    def beam_search(self, tgt, new_token, k):
-        vals, idxs = torch.topk(new_token, k, dim=-1, sorted=True)
+        for _ in range(3):
+            new_beam = []
+            for out, prob in beams:
+                pass
+
+    def forward_step(self, out, prob, new_beam, enc_out, src_mask, out_mask, k):
+        # input = tgt = SOS
+        dec_out = out
+        for dec_layer in self.decoder_block:
+            dec_out = dec_layer(dec_out, enc_out, src_mask, out_mask)
+        # after all layers, dec_out = [bs, 1, d] => next token predicted
+
+        x = F.log_softmax(self.fc(dec_out))
+        vals, idxs = torch.topk(x, k, dim=-1, sorted=True) 
+
+
+
+    def beam_search(self, beams, new_token, k):
+        pass
         
 
 
