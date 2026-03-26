@@ -174,10 +174,13 @@ class EncoderLayer(nn.Module):
 
     def forward(self, x, mask=None):
         # input x = embed + positional encoding = [bs, sl, d]
+        x = self.norm1(x)
         z = self.mha(x, x, x, mask)
-        z_norm1 = self.norm1(self.dropout(z) + x) # residual connections
+        z_norm1 = self.dropout(z) + x # residual connections
+
+        z_norm1 = self.norm2(z_norm1)
         z = self.ffn(z_norm1)
-        z_norm2 = self.norm2(self.dropout(z) + z_norm1)
+        z_norm2 = self.dropout(z) + z_norm1
 
         return z_norm2
 
@@ -199,12 +202,17 @@ class DecoderLayer(nn.Module):
         # tgt_mask = eng mask = causal + padding mask
         # non auto regressive in training
 
+        z = self.norm1(z)
         z = self.masked_mha(x, x, x, tgt_mask)
-        z1 = self.norm1(self.dropout(z) + x)
+        z1 = self.dropout(z) + x
+        
+        z1 = self.norm2(z1)
         z2 = self.cross_mha(z1, enc_output, enc_output, src_mask)
-        z3 = self.norm2(self.dropout(z2) + z1)
+        z3 = self.dropout(z2) + z1
+
+        z3 = self.norm3(z3)
         y = self.ffn(z3)
-        out = self.norm3(self.dropout(y) + z3)
+        out = self.dropout(y) + z3
 
         return out
     
@@ -228,7 +236,7 @@ class Transformer(nn.Module):
 
     def generate_mask(self, src, tgt):
         src_mask = (src != 0).unsqueeze(1).unsqueeze(2)
-        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3)
+        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(2)
         # print(type(src_mask))
 
         seqlen = tgt.size(1)
