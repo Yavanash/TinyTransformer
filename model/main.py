@@ -174,12 +174,12 @@ class EncoderLayer(nn.Module):
 
     def forward(self, x, mask=None):
         # input x = embed + positional encoding = [bs, sl, d]
-        x = self.norm1(x)
-        z = self.mha(x, x, x, mask)
+        x1 = self.norm1(x)
+        z = self.mha(x1, x1, x1, mask)
         z_norm1 = self.dropout(z) + x # residual connections
 
-        z_norm1 = self.norm2(z_norm1)
-        z = self.ffn(z_norm1)
+        z_norm1_1 = self.norm2(z_norm1)
+        z = self.ffn(z_norm1_1)
         z_norm2 = self.dropout(z) + z_norm1
 
         return z_norm2
@@ -202,16 +202,16 @@ class DecoderLayer(nn.Module):
         # tgt_mask = eng mask = causal + padding mask
         # non auto regressive in training
 
-        z = self.norm1(x)
-        z = self.masked_mha(x, x, x, tgt_mask)
+        z0 = self.norm1(x)
+        z = self.masked_mha(z0, z0, z0, tgt_mask)
         z1 = self.dropout(z) + x
         
-        z1 = self.norm2(z1)
-        z2 = self.cross_mha(z1, enc_output, enc_output, src_mask)
+        z1_1 = self.norm2(z1)
+        z2 = self.cross_mha(z1_1, enc_output, enc_output, src_mask)
         z3 = self.dropout(z2) + z1
 
-        z3 = self.norm3(z3)
-        y = self.ffn(z3)
+        z3_1 = self.norm3(z3)
+        y = self.ffn(z3_1)
         out = self.dropout(y) + z3
 
         return out

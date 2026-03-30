@@ -118,6 +118,7 @@ MAX_SEQ_LEN = 54
 MAX_LEN = 25
 
 tgt_vocab = testdata.eng_vocab
+src_vocab = testdata.fra_vocab
 preprocess = testdata.preprocess
 
 model = InferenceTransformer(D_MODEL, NUM_HEADS, NUM_LAYERS, D_FF, MAX_SEQ_LEN, SRC_VOCAB_SIZE, TGT_VOCAB_SIZE)
@@ -146,10 +147,11 @@ def validate(model, criterion, test_loader):
     
     return test_losses
 
-def translate(model, src, tgt_vocab = tgt_vocab, preprocess = preprocess):
+def translate(model, src, src_vocab = src_vocab, tgt_vocab = tgt_vocab, preprocess = preprocess):
+    model.eval()
     pre = preprocess(src)
-    tokens = tgt_vocab.encode(pre)
-    tensor = torch.tensor(tokens, dtype=torch.long)
+    tokens = src_vocab.encode(pre)
+    tensor = torch.tensor(tokens, dtype=torch.long, device=device)
 
     beams = model(tensor.unsqueeze(0))
 
@@ -161,7 +163,8 @@ def translate(model, src, tgt_vocab = tgt_vocab, preprocess = preprocess):
 
 def main():
     src = input("Enter sentence to translate: ")
-    outputs = translate(model, src)
+    with torch.no_grad():
+        outputs = translate(model, src)
     print(outputs)
 
 if __name__ == "__main__":
