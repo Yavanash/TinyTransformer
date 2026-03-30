@@ -115,7 +115,7 @@ D_FF = 512
 SRC_VOCAB_SIZE = testdata.fra_vocab.nxt_idx
 TGT_VOCAB_SIZE = testdata.eng_vocab.nxt_idx
 MAX_SEQ_LEN = 54
-MAX_LEN = 25
+MAX_LEN = 55
 
 tgt_vocab = testdata.eng_vocab
 src_vocab = testdata.fra_vocab
