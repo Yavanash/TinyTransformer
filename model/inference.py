@@ -9,21 +9,20 @@ from tqdm import tqdm
 import string
 from pickle import dump
 import unicodedata
-import os
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 eng_vocab = "../data/eng.json"
 fra_vocab = "../data/fra.json"
 filepath = "../data/test.csv"
-checkpt_path = "../checkpoints/checkpt100.pth"
+checkpt_path = "../checkpoints/checkpt125.pth"
 # filepath = "test.csv"
 # eng_vocab = "eng.json"
 # fra_vocab = "fra.json"
 # checkpt_path = "checkpt100.pth"
 
 class TestDataset(Dataset):
-    def __init__(self, filepath, eng_vocab_path=None, fra_vocab_path=None):
+    def __init__(self, filepath, eng_vocab_path, fra_vocab_path):
         super().__init__()
 
         test = pd.read_csv(filepath, encoding="utf-8")
@@ -43,11 +42,11 @@ class TestDataset(Dataset):
         return self.df.shape[0]
 
     def __getitem__(self, idx):
-        eng_tokens = self.eng_vocab.encode(self.df["eng"][idx])
-        fra_tokens = self.fra_vocab.encode(self.df["fra"][idx])
+        eng_tokens = self.eng_vocab.encode(self.df["eng"][idx].split())
+        fra_tokens = self.fra_vocab.encode(self.df["fra"][idx].split())
 
         eng_tensor = torch.tensor(eng_tokens, dtype=torch.long)
-        fra_tensor = torch.tensor(fra_tokens[1:], dtype=torch.long)
+        fra_tensor = torch.tensor(fra_tokens, dtype=torch.long)
 
         return fra_tensor, eng_tensor 
     
@@ -62,28 +61,40 @@ class InferenceTransformer(Transformer):
         super().__init__(d_model, num_heads, num_layers, d_ff, max_seq_len, src_vocab_size, tgt_vocab_size)
     
     def forward(self, src, k=3):
-        # src = [bs, sl]
         src = src[:, :MAX_SEQ_LEN]
-        dec_in = torch.full((src.size(0), 1), 1, dtype=torch.long, device=device) # 1 = SOS
+        dec_in = torch.full((src.size(0), 1), 1, dtype=torch.long, device=device)
         src_mask, _ = self.generate_mask(src, dec_in)
 
-        input_src = self.positional_encoding(self.src_embed(src)) # no dropout in inference
-
+        input_src = self.positional_encoding(self.src_embed(src))
         enc_out = input_src
         for enc_layer in self.encoder_block:
             enc_out = enc_layer(enc_out, src_mask)
-        
+
         initial_probs = torch.zeros(src.size(0), dtype=torch.float, device=device)
-        beams = [(dec_in, initial_probs)] # log(1) = 0
+        beams = [(dec_in, initial_probs)]
+        completed = []
 
-        for _ in range(3):
+        for _ in range(MAX_LEN):
+            active = []
             new_beam = []
-            for inpt, prob in beams:
-                self.forward_step(src, inpt, prob, new_beam, enc_out, src_mask, k)
-            nb = sorted(new_beam, reverse=True, key=lambda x: x[1].mean().item())[:k]
-            beams = nb
 
-        return beams
+            for inpt, prob in beams:
+                if inpt[0, -1].item() == 2:  # 2 = EOS token index
+                    completed.append((inpt, prob))
+                else:
+                    active.append((inpt, prob))
+
+            if not active:  # all beams have hit EOS
+                break
+
+            for inpt, prob in active:
+                dec_out, new_beam = self.forward_step(src, inpt, prob, new_beam, enc_out, src_mask, k)
+
+            beams = sorted(new_beam, key=lambda x: x[1].sum().item() / x[0].size(1), reverse=True)[:k]
+
+        # prefer completed beams, fall back to active ones if EOS never appeared
+        final = completed if completed else beams
+        return sorted(final, key=lambda x: x[1].sum().item() / x[0].size(1), reverse=True)[:k], dec_out
 
     def forward_step(self, src, inpt, prob, new_beam, enc_out, src_mask, k):
         # inpt = [bs, sl]
@@ -102,7 +113,9 @@ class InferenceTransformer(Transformer):
         for i in range(k):
             new_inpt = torch.cat((inpt, idxs[:,i].unsqueeze(-1)), dim=-1)
             new_prob = prob + vals[:,i]
-            new_beam.append((new_inpt, new_prob))        
+            new_beam.append((new_inpt, new_prob))     
+
+        return dec_out, new_beam
 
 
 testdata = TestDataset(filepath, eng_vocab, fra_vocab)
@@ -114,8 +127,8 @@ NUM_LAYERS = 2
 D_FF = 512
 SRC_VOCAB_SIZE = testdata.fra_vocab.nxt_idx
 TGT_VOCAB_SIZE = testdata.eng_vocab.nxt_idx
-MAX_SEQ_LEN = 54
-MAX_LEN = 55
+MAX_SEQ_LEN = 55
+MAX_LEN = 10
 
 tgt_vocab = testdata.eng_vocab
 src_vocab = testdata.fra_vocab
@@ -130,30 +143,28 @@ criterion = nn.CrossEntropyLoss(ignore_index=0)
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 def validate(model, criterion, test_loader):
-    model.eval()
     test_losses = []
 
     progress = tqdm(test_loader, total=len(test_loader))
 
     for src, tgt in progress:
         src, tgt = src.to(device), tgt.to(device)
-        pred = model(src) # pred = [([bs, sl], [bs])]
+        _, preds = model(src) # pred = [(([bs, sl], [bs]), [bs,sl,vocab])]
         
+        pred_loss = preds.contiguous().view(-1, TGT_VOCAB_SIZE)
         tgt_loss = tgt.contiguous().view(-1)
-        for output, _ in pred:
-            pred_loss = output.contiguous().view(-1, TGT_VOCAB_SIZE)
+
         loss = criterion(pred_loss, tgt_loss)
         test_losses.append(loss.item())
     
     return test_losses
 
 def translate(model, src, src_vocab = src_vocab, tgt_vocab = tgt_vocab, preprocess = preprocess):
-    model.eval()
-    pre = preprocess(src)
+    pre = preprocess(src).split()
     tokens = src_vocab.encode(pre)
     tensor = torch.tensor(tokens, dtype=torch.long, device=device)
 
-    beams = model(tensor.unsqueeze(0))
+    beams, _ = model(tensor.unsqueeze(0))
 
     outputs = []
     for output, _ in beams:
@@ -162,10 +173,13 @@ def translate(model, src, src_vocab = src_vocab, tgt_vocab = tgt_vocab, preproce
     return outputs
 
 def main():
-    src = input("Enter sentence to translate: ")
-    with torch.no_grad():
-        outputs = translate(model, src)
-    print(outputs)
+    model.eval()
+    # src = input("Enter sentence to translate: ")
+    # with torch.no_grad():
+    #     outputs = translate(model, src)
+    # print(outputs)
+    test_losses = validate(model, criterion, test_loader)
+    print(test_losses[:5])
 
 if __name__ == "__main__":
     main()
