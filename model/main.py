@@ -51,7 +51,7 @@ class Vocab():
                 if token.item() == self.stoi[EOS]:
                     break
                 words.append(self.itos.get(token.item(), UNK))
-            out.append(" ".join(words))
+            out.append(words)
 
         return out
     
