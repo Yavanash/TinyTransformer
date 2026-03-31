@@ -20,7 +20,7 @@ checkpt_path = "../checkpoints/checkpt125.pth"
 # filepath = "test.csv"
 # eng_vocab = "eng.json"
 # fra_vocab = "fra.json"
-# checkpt_path = "checkpt100.pth"
+# checkpt_path = "checkpt125.pth"
 
 class TestDataset(Dataset):
     def __init__(self, filepath, eng_vocab_path, fra_vocab_path):
@@ -64,11 +64,11 @@ def custom_padding(batch, pad_idx = 0):
     max_eng = max(len(x) for x in eng)
 
     fra_batch = torch.full((batch_size, max_fra), pad_idx, dtype=torch.long)
-    eng_batch = [[pad_idx for _ in range(max_eng)] for _ in range(batch_size)]
+    eng_batch = torch.full((batch_size, max_eng), pad_idx, dtype=torch.long)
 
     for i in range(batch_size):
         fra_batch[i, :fra[i].size(0)] = fra[i]
-        eng_batch[i][:len(eng[i])] = eng[i]
+        eng_batch[i, :len(eng[i])] = torch.tensor(eng[i], dtype=torch.long)
 
     return fra_batch, eng_batch
 
@@ -162,15 +162,16 @@ def calc_bleu_score(model, test_loader, tgt_vocab = tgt_vocab):
     references = []
 
     progress = tqdm(test_loader, total=len(test_loader))
-    for src, tgt in progress:
-        src = src.to(device)
-        beams = model(src)
-
-        # print(beams)
-        # break ; there are multiple outputs so select only top
-        outputs = tgt_vocab.decode(beams[0][0]) # beams = list of ( [bs,sl], [bs] )
-        generated.extend(outputs)
-        references.extend([seq for seq in tgt]) # tgt = [bs, sl]
+    with torch.no_grad():
+        for src, tgt in progress:
+                src = src.to(device)
+                beams = model(src)
+                # print(beams)
+                # break ; there are multiple outputs so select only top
+                outputs = tgt_vocab.decode(beams[0][0]) # beams = list of ( [bs,sl], [bs] )
+                targets = tgt_vocab.decode(tgt)
+                generated.extend(outputs)
+                references.extend([[target] for target in targets]) # tgt = [bs, sl]
     
     bleu_score = corpus_bleu(references, generated)
     return bleu_score

@@ -7,4 +7,5 @@ data/fra_vocab.json
 checkpoints/
 .ipynb_checkpoints
 .env
+colab/
 __pycache__
